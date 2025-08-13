@@ -1,0 +1,16 @@
+# Standard library modules (come with Python, no pip install needed)
+tkinter
+subprocess
+platform
+os
+socket
+getpass
+datetime
+base64
+threading
+time
+math
+json
+
+# Third-party packages
+cryptography
