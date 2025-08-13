@@ -10,7 +10,7 @@ This tool is intended **exclusively** for penetration testers and security teams
 ## 📦 Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/m3m0rydmp/Rev3nant.git
 ```
 
 ## 💡 Usage Notes
